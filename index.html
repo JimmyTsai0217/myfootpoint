@@ -1,12 +1,9 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>我的足跡日記</title>
-
-  <!-- Leaflet 地圖樣式 -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
 
   <style>
     :root {
@@ -29,9 +26,14 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans TC", sans-serif;
     }
 
+    html, body {
+      height: 100%;
+    }
+
     body {
       background: var(--bg);
       color: var(--text);
+      height: 100vh;
       height: 100dvh;
       display: flex;
       flex-direction: column;
@@ -55,10 +57,7 @@
       align-items: center;
       gap: 6px;
     }
-    .header-actions {
-      display: flex;
-      gap: 8px;
-    }
+    .header-actions { display: flex; gap: 8px; }
     .btn {
       padding: 7px 12px;
       border-radius: 8px;
@@ -105,8 +104,24 @@
     #map {
       width: 100%;
       height: 100%;
+      min-height: 360px;
       background: #e2e8f0;
       z-index: 1;
+    }
+    .map-status-box {
+      padding: 24px 20px;
+      max-width: 520px;
+      margin: 40px auto;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      line-height: 1.7;
+      font-size: 0.92rem;
+    }
+    .map-status-box h3 {
+      color: var(--danger);
+      margin-bottom: 8px;
+      font-size: 1.05rem;
     }
     .layer-switch-btn {
       position: absolute;
@@ -128,6 +143,27 @@
       z-index: 500;
       pointer-events: none;
       white-space: nowrap;
+    }
+
+    /* 自訂純 CSS 地圖圖釘（不依賴外部圖片） */
+    .custom-pin {
+      width: 28px;
+      height: 28px;
+      border-radius: 50% 50% 50% 0;
+      background: #2563eb;
+      border: 2px solid #ffffff;
+      transform: rotate(-45deg);
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .custom-pin::after {
+      content: "";
+      width: 8px;
+      height: 8px;
+      background: #ffffff;
+      border-radius: 50%;
     }
 
     /* 浮動新增按鈕 */
@@ -375,9 +411,9 @@
   <header>
     <h1>📍 我的足跡日記</h1>
     <div class="header-actions">
-      <button class="btn" onclick="exportBackup()" title="匯出 ZIP 備份">📤 備份</button>
-      <button class="btn" onclick="document.getElementById('importInput').click()" title="還原 ZIP 備份">📥 還原</button>
-      <input type="file" id="importInput" accept=".zip" style="display:none" onchange="importBackup(event)" />
+      <button class="btn" onclick="exportBackup()" title="匯出 JSON 完整備份">📤 備份</button>
+      <button class="btn" onclick="document.getElementById('importInput').click()" title="還原 JSON 備份">📥 還原</button>
+      <input type="file" id="importInput" accept=".json" style="display:none" onchange="importBackup(event)" />
     </div>
   </header>
 
@@ -386,10 +422,10 @@
     <!-- 地圖視圖 -->
     <div id="mapView" class="view active">
       <div id="map"></div>
-      <button type="button" class="btn layer-switch-btn" id="layerSwitchBtn" onclick="toggleMapLayer()" title="切換地圖圖層">
-        🗺️ 圖層：OSM
+      <button type="button" class="btn layer-switch-btn" id="layerSwitchBtn" onclick="cycleMapLayer()" style="display:none;">
+        🗺️ 台灣地圖
       </button>
-      <div class="map-hint">💡 點擊地圖任意處或按「+」新增足跡</div>
+      <div class="map-hint" id="mapHint" style="display:none;">💡 點擊地圖任意處或按「+」新增足跡</div>
     </div>
 
     <!-- 時間軸列表視圖 -->
@@ -482,105 +518,241 @@
     <img id="lightboxImg" src="" alt="放大預覽" />
   </div>
 
-  <!-- 外部函式庫 -->
-  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/dexie@3.2.4/dist/dexie.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-
   <script>
     // ==========================================
-    // 1. 初始化 IndexedDB 本機資料庫
+    // 1. 瀏覽器原生 IndexedDB（免外部 Dexie 套件）
     // ==========================================
-    const db = new Dexie("FootprintsDB");
-    db.version(1).stores({
-      places: "id, title, visitedAt, latitude, longitude"
-    });
-    db.version(2).stores({
-      places: "id, title, category, visitedAt, latitude, longitude"
-    });
+    const DB_NAME = "MyFootprintsNativeDB";
+    const STORE_NAME = "places";
+    let dbPromise = null;
+
+    function openDB() {
+      if (dbPromise) return dbPromise;
+      dbPromise = new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME, 1);
+        req.onupgradeneeded = (e) => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains(STORE_NAME)) {
+            db.createObjectStore(STORE_NAME, { keyPath: "id" });
+          }
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      return dbPromise;
+    }
+
+    async function dbGetAll() {
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, "readonly");
+        const req = tx.objectStore(STORE_NAME).getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    async function dbGet(id) {
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, "readonly");
+        const req = tx.objectStore(STORE_NAME).get(id);
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    async function dbPut(record) {
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, "readwrite");
+        const req = tx.objectStore(STORE_NAME).put(record);
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    async function dbDelete(id) {
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, "readwrite");
+        const req = tx.objectStore(STORE_NAME).delete(id);
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+      });
+    }
 
     // ==========================================
-    // 2. 初始化地圖、備援圖磚與尺寸重算
+    // 2. Leaflet 多節點自動載入（優先 Cloudflare，備援 unpkg / jsDelivr / 本機）
     // ==========================================
-    const map = L.map("map").setView([23.9738, 120.9820], 8);
+    const LEAFLET_SOURCES = [
+      {
+        name: "Cloudflare CDN",
+        css: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css",
+        js: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"
+      },
+      {
+        name: "unpkg CDN",
+        css: "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css",
+        js: "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      },
+      {
+        name: "jsDelivr CDN",
+        css: "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css",
+        js: "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"
+      },
+      {
+        name: "專案本機檔案",
+        css: "./leaflet.min.css",
+        js: "./leaflet.min.js"
+      }
+    ];
 
-    const osmLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: "&copy; OpenStreetMap contributors",
-      maxZoom: 19
-    });
+    function loadCSS(url) {
+      return new Promise((resolve, reject) => {
+        const link = document.createElement("link");
+        link.rel = "stylesheet";
+        link.href = url;
+        link.onload = () => resolve();
+        link.onerror = () => { link.remove(); reject(new Error("CSS load failed: " + url)); };
+        document.head.appendChild(link);
+      });
+    }
 
-    const fallbackLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
-      attribution: "&copy; OpenStreetMap &copy; CARTO",
-      maxZoom: 19
-    });
+    function loadScript(url) {
+      return new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = url;
+        script.onload = () => {
+          if (typeof window.L !== "undefined") resolve();
+          else reject(new Error("L undefined after load"));
+        };
+        script.onerror = () => { script.remove(); reject(new Error("JS load failed: " + url)); };
+        document.body.appendChild(script);
+      });
+    }
 
-    let activeLayerName = "osm";
-    let autoFallbackTriggered = false;
+    async function loadLeafletWithFallback() {
+      for (const src of LEAFLET_SOURCES) {
+        try {
+          await loadCSS(src.css);
+          await loadScript(src.js);
+          return src.name;
+        } catch (err) {
+          console.warn(`載入 ${src.name} 失敗，嘗試下一個來源...`);
+        }
+      }
+      return null;
+    }
+
+    // ==========================================
+    // 3. 地圖初始化與多圖磚切換
+    // ==========================================
+    let map = null;
+    let markersLayer = null;
+    let tileLayers = [];
+    let currentLayerIdx = 0;
     let allPlaces = [];
     let tempPhotos = [];
 
-    function updateLayerButtonText() {
-      const btn = document.getElementById("layerSwitchBtn");
-      if (btn) btn.textContent = activeLayerName === "osm" ? "🗺️ 圖層：OSM" : "🗺️ 圖層：CartoDB";
-    }
+    function initMapEngine() {
+      map = L.map("map").setView([23.9738, 120.9820], 8);
 
-    function switchToLayer(targetName) {
-      if (targetName === "carto") {
-        if (map.hasLayer(osmLayer)) map.removeLayer(osmLayer);
-        if (!map.hasLayer(fallbackLayer)) fallbackLayer.addTo(map);
-        activeLayerName = "carto";
-      } else {
-        if (map.hasLayer(fallbackLayer)) map.removeLayer(fallbackLayer);
-        if (!map.hasLayer(osmLayer)) osmLayer.addTo(map);
-        activeLayerName = "osm";
+      tileLayers = [
+        {
+          label: "台灣地圖",
+          layer: L.tileLayer("https://wmts.nlsc.gov.tw/wmts/EMAP/default/GoogleMapsCompatible/{z}/{y}/{x}", {
+            attribution: "&copy; 內政部國土測繪中心",
+            maxZoom: 18
+          })
+        },
+        {
+          label: "CartoDB",
+          layer: L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
+            attribution: "&copy; OpenStreetMap &copy; CARTO",
+            maxZoom: 19
+          })
+        },
+        {
+          label: "OSM",
+          layer: L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+            attribution: "&copy; OpenStreetMap contributors",
+            maxZoom: 19
+          })
+        }
+      ];
+
+      // 若預設圖磚報錯，自動往下切換一次備援圖磚
+      tileLayers.forEach((item, idx) => {
+        let switched = false;
+        item.layer.on("tileerror", () => {
+          if (!switched && currentLayerIdx === idx && idx < tileLayers.length - 1) {
+            switched = true;
+            setMapLayer(idx + 1);
+          }
+        });
+      });
+
+      setMapLayer(0);
+      markersLayer = L.layerGroup().addTo(map);
+
+      document.getElementById("layerSwitchBtn").style.display = "inline-flex";
+      document.getElementById("mapHint").style.display = "block";
+
+      map.on("click", (e) => openModal(e.latlng.lat, e.latlng.lng));
+
+      window.addEventListener("resize", refreshMapSize);
+      window.addEventListener("orientationchange", () => setTimeout(refreshMapSize, 250));
+      if (typeof ResizeObserver !== "undefined") {
+        new ResizeObserver(() => {
+          if (document.getElementById("mapView").classList.contains("active")) {
+            map.invalidateSize({ pan: false });
+          }
+        }).observe(document.getElementById("map"));
       }
-      updateLayerButtonText();
       refreshMapSize();
     }
 
-    function toggleMapLayer() {
-      switchToLayer(activeLayerName === "osm" ? "carto" : "osm");
+    function setMapLayer(idx) {
+      if (!map || !tileLayers.length) return;
+      tileLayers.forEach((item) => {
+        if (map.hasLayer(item.layer)) map.removeLayer(item.layer);
+      });
+      currentLayerIdx = idx % tileLayers.length;
+      tileLayers[currentLayerIdx].layer.addTo(map);
+      document.getElementById("layerSwitchBtn").textContent = "🗺️ " + tileLayers[currentLayerIdx].label;
+      refreshMapSize();
     }
 
-    osmLayer.on("tileerror", () => {
-      if (!autoFallbackTriggered && activeLayerName === "osm") {
-        autoFallbackTriggered = true;
-        switchToLayer("carto");
-      }
-    });
-
-    osmLayer.addTo(map);
-    updateLayerButtonText();
+    function cycleMapLayer() {
+      setMapLayer((currentLayerIdx + 1) % tileLayers.length);
+    }
 
     function refreshMapSize() {
+      if (!map) return;
       requestAnimationFrame(() => map.invalidateSize({ pan: false }));
       setTimeout(() => map.invalidateSize({ pan: false }), 180);
     }
 
-    window.addEventListener("resize", refreshMapSize);
-    window.addEventListener("orientationchange", () => setTimeout(refreshMapSize, 250));
-
-    if (typeof ResizeObserver !== "undefined") {
-      new ResizeObserver(() => {
-        if (document.getElementById("mapView").classList.contains("active")) {
-          map.invalidateSize({ pan: false });
-        }
-      }).observe(document.getElementById("map"));
+    function showMapBlockedNotice() {
+      document.getElementById("map").innerHTML = `
+        <div class="map-status-box">
+          <h3>⚠️ 目前網路封鎖了外部地圖套件</h3>
+          <p>系統已嘗試 Cloudflare、unpkg 與 jsDelivr，連線皆被目前網路防火牆中斷。</p>
+          <p style="margin-top:8px;"><strong>解法：</strong></p>
+          <p>1. 請先用手機 4G/5G 網路開啟此網址測試。<br/>
+             2. 若要在公司網路使用，將 <code>leaflet.min.js</code> 與 <code>leaflet.min.css</code> 直接上傳到同一個 GitHub 專案根目錄即可自動載入。</p>
+          <p style="margin-top:8px; color:#64748b;">（你現在仍可切換下方「時間軸」新增、編輯與備份足跡）</p>
+        </div>
+      `;
     }
 
-    refreshMapSize();
-
-    const markersLayer = L.layerGroup().addTo(map);
-
-    map.on("click", (e) => {
-      openModal(e.latlng.lat, e.latlng.lng);
-    });
-
     // ==========================================
-    // 3. 讀取與渲染足跡
+    // 4. 讀取與渲染足跡
     // ==========================================
     async function loadAllPlaces() {
-      allPlaces = await db.places.orderBy("visitedAt").reverse().toArray();
+      const list = await dbGetAll();
+      allPlaces = list.sort((a, b) => (b.visitedAt || "").localeCompare(a.visitedAt || ""));
       document.getElementById("recordCount").textContent = allPlaces.length;
       renderFilteredPlaces();
     }
@@ -597,35 +769,45 @@
         return matchCat && matchText;
       });
 
-      // 重繪地圖標記
-      markersLayer.clearLayers();
-      const bounds = [];
+      // 重繪地圖圖釘
+      if (map && markersLayer) {
+        markersLayer.clearLayers();
+        const bounds = [];
+        const pinIcon = L.divIcon({
+          className: "",
+          html: '<div class="custom-pin"></div>',
+          iconSize: [28, 28],
+          iconAnchor: [14, 28],
+          popupAnchor: [0, -28]
+        });
 
-      filtered.forEach((p) => {
-        const marker = L.marker([p.latitude, p.longitude]).addTo(markersLayer);
-        bounds.push([p.latitude, p.longitude]);
+        filtered.forEach((p) => {
+          if (typeof p.latitude !== "number" || typeof p.longitude !== "number") return;
+          const marker = L.marker([p.latitude, p.longitude], { icon: pinIcon }).addTo(markersLayer);
+          bounds.push([p.latitude, p.longitude]);
 
-        const firstPhotoHtml = (p.photos && p.photos.length > 0)
-          ? `<img src="${p.photos[0]}" style="width:100%; height:110px; object-fit:cover; border-radius:6px; margin-top:6px; cursor:pointer;" onclick="openLightbox(this.src)" />`
-          : "";
+          const firstPhotoHtml = (p.photos && p.photos.length > 0)
+            ? `<img src="${p.photos[0]}" style="width:100%; height:110px; object-fit:cover; border-radius:6px; margin-top:6px; cursor:pointer;" onclick="openLightbox(this.src)" />`
+            : "";
 
-        marker.bindPopup(`
-          <div style="min-width:185px; max-width:240px;">
-            <strong style="font-size:14px;">${escapeHtml(p.title)}</strong>
-            <span style="font-size:11px; background:#eff6ff; color:#1d4ed8; padding:1px 6px; border-radius:10px; margin-left:4px;">${escapeHtml(p.category || "景點")}</span><br/>
-            <span style="font-size:11px; color:#64748b;">${formatDate(p.visitedAt)}</span>
-            ${firstPhotoHtml}
-            <p style="font-size:12px; margin-top:6px; white-space:pre-wrap;">${escapeHtml(p.note || "")}</p>
-          </div>
-        `);
-      });
+          marker.bindPopup(`
+            <div style="min-width:185px; max-width:240px;">
+              <strong style="font-size:14px;">${escapeHtml(p.title)}</strong>
+              <span style="font-size:11px; background:#eff6ff; color:#1d4ed8; padding:1px 6px; border-radius:10px; margin-left:4px;">${escapeHtml(p.category || "景點")}</span><br/>
+              <span style="font-size:11px; color:#64748b;">${formatDate(p.visitedAt)}</span>
+              ${firstPhotoHtml}
+              <p style="font-size:12px; margin-top:6px; white-space:pre-wrap;">${escapeHtml(p.note || "")}</p>
+            </div>
+          `);
+        });
 
-      if (bounds.length > 0 && !window.hasInitialFit) {
-        map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
-        window.hasInitialFit = true;
+        if (bounds.length > 0 && !window.hasInitialFit) {
+          map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+          window.hasInitialFit = true;
+        }
       }
 
-      // 重繪列表卡片
+      // 重繪時間軸列表
       const container = document.getElementById("recordsContainer");
       if (filtered.length === 0) {
         container.innerHTML = allPlaces.length === 0
@@ -652,7 +834,7 @@
                 <button class="btn btn-danger" onclick="deletePlace('${p.id}')">刪除</button>
               </div>
             </div>
-            <div class="card-date">🕒 ${formatDate(p.visitedAt)} ｜ 座標：${p.latitude.toFixed(4)}, ${p.longitude.toFixed(4)}</div>
+            <div class="card-date">🕒 ${formatDate(p.visitedAt)} ｜ 座標：${Number(p.latitude).toFixed(4)}, ${Number(p.longitude).toFixed(4)}</div>
             ${p.note ? `<div class="card-note">${escapeHtml(p.note)}</div>` : ""}
             ${photosHtml ? `<div class="card-photos">${photosHtml}</div>` : ""}
           </div>
@@ -661,7 +843,7 @@
     }
 
     // ==========================================
-    // 4. 圖片壓縮 (Canvas)
+    // 5. 圖片壓縮 (Canvas)
     // ==========================================
     async function handlePhotos(event) {
       const files = Array.from(event.target.files);
@@ -711,7 +893,7 @@
     }
 
     // ==========================================
-    // 5. 新增、編輯、刪除與 GPS 定位
+    // 6. 新增、編輯、刪除與 GPS 定位
     // ==========================================
     function openModal(lat = null, lng = null) {
       document.getElementById("placeForm").reset();
@@ -735,7 +917,7 @@
     }
 
     async function editPlace(id) {
-      const place = await db.places.get(id);
+      const place = await dbGet(id);
       if (!place) return;
 
       document.getElementById("modalTitle").textContent = "編輯足跡紀錄";
@@ -757,8 +939,17 @@
     }
 
     function getCurrentLocation() {
+      const setFallbackCoord = () => {
+        if (!document.getElementById("latInput").value) {
+          const lat = map ? map.getCenter().lat : 25.0330;
+          const lng = map ? map.getCenter().lng : 121.5654;
+          document.getElementById("latInput").value = lat.toFixed(6);
+          document.getElementById("lngInput").value = lng.toFixed(6);
+        }
+      };
+
       if (!navigator.geolocation) {
-        alert("您的瀏覽器不支援 GPS 定位，請直接點擊地圖選取位置。");
+        setFallbackCoord();
         return;
       }
       navigator.geolocation.getCurrentPosition(
@@ -766,15 +957,9 @@
           const { latitude, longitude } = pos.coords;
           document.getElementById("latInput").value = latitude.toFixed(6);
           document.getElementById("lngInput").value = longitude.toFixed(6);
-          map.setView([latitude, longitude], 15);
+          if (map) map.setView([latitude, longitude], 15);
         },
-        () => {
-          if (!document.getElementById("latInput").value) {
-            const center = map.getCenter();
-            document.getElementById("latInput").value = center.lat.toFixed(6);
-            document.getElementById("lngInput").value = center.lng.toFixed(6);
-          }
-        },
+        () => setFallbackCoord(),
         { enableHighAccuracy: true, timeout: 8000 }
       );
     }
@@ -793,50 +978,40 @@
         photos: [...tempPhotos]
       };
 
-      await db.places.put(record);
+      await dbPut(record);
       closeModal();
       await loadAllPlaces();
-      map.flyTo([record.latitude, record.longitude], 15);
+      if (map) map.flyTo([record.latitude, record.longitude], 15);
     }
 
     async function deletePlace(id) {
       if (!confirm("確定要刪除這筆足跡紀錄嗎？")) return;
-      await db.places.delete(id);
+      await dbDelete(id);
       await loadAllPlaces();
     }
 
     // ==========================================
-    // 6. ZIP 備份與還原
+    // 7. 原生 JSON 備份與還原（免外部 JSZip 套件）
     // ==========================================
     async function exportBackup() {
-      const places = await db.places.toArray();
+      const places = await dbGetAll();
       if (places.length === 0) {
         alert("目前沒有任何紀錄可以備份！");
         return;
       }
 
-      const zip = new JSZip();
-      const imgFolder = zip.folder("images");
-      const cleanRecords = [];
+      const payload = {
+        app: "MyFootprints",
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        places
+      };
 
-      places.forEach((p) => {
-        const photoFiles = [];
-        (p.photos || []).forEach((base64, idx) => {
-          const filename = `${p.id}_${idx}.jpg`;
-          const base64Data = base64.split(",")[1];
-          imgFolder.file(filename, base64Data, { base64: true });
-          photoFiles.push(`images/${filename}`);
-        });
-        cleanRecords.push({ ...p, photos: photoFiles });
-      });
-
-      zip.file("records.json", JSON.stringify(cleanRecords, null, 2));
-
-      const blob = await zip.generateAsync({ type: "blob" });
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
       const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
-      link.download = `Footprints_Backup_${dateStr}.zip`;
+      link.download = `Footprints_Backup_${dateStr}.json`;
       link.click();
       URL.revokeObjectURL(link.href);
     }
@@ -846,28 +1021,20 @@
       if (!file) return;
 
       try {
-        const zip = await JSZip.loadAsync(file);
-        const jsonFile = zip.file("records.json");
-        if (!jsonFile) throw new Error("找不到 records.json，請確認是否為有效的足跡備份檔。");
+        const text = await file.text();
+        const data = JSON.parse(text);
+        const records = Array.isArray(data) ? data : data.places;
+        if (!Array.isArray(records)) throw new Error("備份檔格式不正確。");
 
-        const records = JSON.parse(await jsonFile.async("string"));
-        let importedCount = 0;
-
+        let count = 0;
         for (const rec of records) {
-          const restoredPhotos = [];
-          for (const photoPath of (rec.photos || [])) {
-            const imgFile = zip.file(photoPath);
-            if (imgFile) {
-              const base64Data = await imgFile.async("base64");
-              restoredPhotos.push(`data:image/jpeg;base64,${base64Data}`);
-            }
+          if (rec && rec.id && rec.title) {
+            await dbPut(rec);
+            count++;
           }
-          rec.photos = restoredPhotos;
-          await db.places.put(rec);
-          importedCount++;
         }
 
-        alert(`成功還原／合併 ${importedCount} 筆足跡紀錄！`);
+        alert(`成功還原／合併 ${count} 筆足跡紀錄！`);
         window.hasInitialFit = false;
         await loadAllPlaces();
       } catch (err) {
@@ -878,7 +1045,7 @@
     }
 
     // ==========================================
-    // 7. 介面切換與輔助工具
+    // 8. 介面切換與輔助工具
     // ==========================================
     function switchTab(tab) {
       document.getElementById("mapView").classList.toggle("active", tab === "map");
@@ -891,7 +1058,7 @@
     function flyToPlace(lat, lng) {
       switchTab("map");
       refreshMapSize();
-      map.flyTo([lat, lng], 16);
+      if (map) map.flyTo([lat, lng], 16);
     }
 
     function openLightbox(src) {
@@ -909,7 +1076,20 @@
       }[m]));
     }
 
-    loadAllPlaces();
+    // ==========================================
+    // 9. 程式啟動流程
+    // ==========================================
+    (async function bootstrap() {
+      await loadAllPlaces();
+      const loadedSource = await loadLeafletWithFallback();
+      if (loadedSource) {
+        console.log("Leaflet 已從以下來源載入：", loadedSource);
+        initMapEngine();
+        renderFilteredPlaces();
+      } else {
+        showMapBlockedNotice();
+      }
+    })();
   </script>
 </body>
 </html>
