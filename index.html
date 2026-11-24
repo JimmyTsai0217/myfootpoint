@@ -1,0 +1,915 @@
+﻿<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>我的足跡日記</title>
+
+  <!-- Leaflet 地圖樣式 -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
+
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-dark: #1d4ed8;
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --text: #1e293b;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --danger: #ef4444;
+      --tag-bg: #eff6ff;
+      --tag-text: #1d4ed8;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans TC", sans-serif;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* 頂部導航列 */
+    header {
+      background: var(--card);
+      padding: 12px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      z-index: 1000;
+    }
+    header h1 {
+      font-size: 1.15rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .header-actions {
+      display: flex;
+      gap: 8px;
+    }
+    .btn {
+      padding: 7px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      color: var(--text);
+      font-size: 0.85rem;
+      font-weight: 500;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
+    }
+    .btn:active { opacity: 0.8; }
+    .btn-primary {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
+    .btn-danger {
+      background: #fee2e2;
+      color: var(--danger);
+      border-color: #fecaca;
+    }
+
+    /* 主內容區 */
+    main {
+      flex: 1;
+      position: relative;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .view {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: none;
+    }
+    .view.active { display: block; }
+
+    /* 地圖視圖 */
+    #map {
+      width: 100%;
+      height: 100%;
+      background: #e2e8f0;
+      z-index: 1;
+    }
+    .layer-switch-btn {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      z-index: 500;
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.14);
+    }
+    .map-hint {
+      position: absolute;
+      bottom: 85px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(15, 23, 42, 0.78);
+      color: #fff;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      z-index: 500;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    /* 浮動新增按鈕 */
+    .fab {
+      position: absolute;
+      bottom: 24px;
+      right: 20px;
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      font-size: 28px;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);
+      cursor: pointer;
+      z-index: 600;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* 列表視圖 */
+    #listView {
+      overflow-y: auto;
+      padding: 14px 16px 96px;
+    }
+    .filter-bar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .filter-bar input,
+    .filter-bar select {
+      padding: 9px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 0.9rem;
+      background: var(--card);
+      color: var(--text);
+    }
+    .filter-bar input { flex: 1; min-width: 0; }
+
+    .empty-state {
+      text-align: center;
+      color: var(--muted);
+      margin-top: 60px;
+      font-size: 0.95rem;
+      line-height: 1.7;
+    }
+    .card {
+      background: var(--card);
+      border-radius: 12px;
+      padding: 14px;
+      margin-bottom: 14px;
+      border: 1px solid var(--border);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+    }
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+    .card-title-wrap {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .card-title { font-size: 1.05rem; font-weight: 700; }
+    .tag {
+      font-size: 0.72rem;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: var(--tag-bg);
+      color: var(--tag-text);
+    }
+    .card-actions { display: flex; gap: 6px; flex-shrink: 0; }
+    .card-date {
+      font-size: 0.78rem;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+    .card-note {
+      font-size: 0.92rem;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      margin-bottom: 10px;
+    }
+    .card-photos {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+    .card-photos img {
+      width: 92px;
+      height: 92px;
+      object-fit: cover;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    /* 底部切換列 */
+    nav {
+      background: var(--card);
+      border-top: 1px solid var(--border);
+      display: flex;
+      height: 56px;
+      z-index: 1000;
+    }
+    .nav-item {
+      flex: 1;
+      border: none;
+      background: none;
+      font-size: 0.9rem;
+      color: var(--muted);
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .nav-item.active {
+      color: var(--primary);
+      border-top: 2px solid var(--primary);
+    }
+
+    /* Modal 彈窗 */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.5);
+      display: none;
+      align-items: flex-end;
+      justify-content: center;
+      z-index: 2000;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal {
+      background: var(--card);
+      width: 100%;
+      max-width: 540px;
+      max-height: 92dvh;
+      border-radius: 16px 16px 0 0;
+      padding: 20px;
+      overflow-y: auto;
+      animation: slideUp 0.2s ease-out;
+    }
+    @media (min-width: 600px) {
+      .modal-backdrop { align-items: center; }
+      .modal { border-radius: 16px; }
+    }
+    @keyframes slideUp {
+      from { transform: translateY(30px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .modal-header h2 { font-size: 1.1rem; }
+    .form-group { margin-bottom: 14px; }
+    .form-group label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+    .form-control {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 0.95rem;
+      background: #fff;
+    }
+    textarea.form-control { min-height: 90px; resize: vertical; }
+    .form-row { display: flex; gap: 10px; }
+    .form-row > .form-group { flex: 1; }
+    .coord-row { display: flex; gap: 8px; align-items: center; }
+    .coord-row input {
+      flex: 1;
+      min-width: 0;
+      font-size: 0.85rem;
+      color: var(--muted);
+      background: #f1f5f9;
+    }
+
+    .preview-grid {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+    .preview-item { position: relative; width: 76px; height: 76px; }
+    .preview-item img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+    .preview-remove {
+      position: absolute;
+      top: -6px;
+      right: -6px;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: var(--danger);
+      color: #fff;
+      border: none;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    /* 圖片全螢幕檢視器 */
+    #lightbox {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.9);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 3000;
+      padding: 16px;
+    }
+    #lightbox.open { display: flex; }
+    #lightbox img {
+      max-width: 100%;
+      max-height: 100%;
+      border-radius: 8px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 頂部工具列 -->
+  <header>
+    <h1>📍 我的足跡日記</h1>
+    <div class="header-actions">
+      <button class="btn" onclick="exportBackup()" title="匯出 ZIP 備份">📤 備份</button>
+      <button class="btn" onclick="document.getElementById('importInput').click()" title="還原 ZIP 備份">📥 還原</button>
+      <input type="file" id="importInput" accept=".zip" style="display:none" onchange="importBackup(event)" />
+    </div>
+  </header>
+
+  <!-- 主畫面 -->
+  <main>
+    <!-- 地圖視圖 -->
+    <div id="mapView" class="view active">
+      <div id="map"></div>
+      <button type="button" class="btn layer-switch-btn" id="layerSwitchBtn" onclick="toggleMapLayer()" title="切換地圖圖層">
+        🗺️ 圖層：OSM
+      </button>
+      <div class="map-hint">💡 點擊地圖任意處或按「+」新增足跡</div>
+    </div>
+
+    <!-- 時間軸列表視圖 -->
+    <div id="listView" class="view">
+      <div class="filter-bar">
+        <input type="text" id="searchInput" placeholder="搜尋地點或筆記內容..." oninput="renderFilteredPlaces()" />
+        <select id="categoryFilter" onchange="renderFilteredPlaces()">
+          <option value="">全部分類</option>
+          <option value="景點">景點</option>
+          <option value="美食">美食</option>
+          <option value="住宿">住宿</option>
+          <option value="日常">日常</option>
+          <option value="其他">其他</option>
+        </select>
+      </div>
+      <div id="recordsContainer"></div>
+    </div>
+
+    <!-- 新增按鈕 -->
+    <button class="fab" onclick="openModal()" title="新增足跡">+</button>
+  </main>
+
+  <!-- 底部導航 -->
+  <nav>
+    <button class="nav-item active" id="tabMap" onclick="switchTab('map')">🗺️ 地圖模式</button>
+    <button class="nav-item" id="tabList" onclick="switchTab('list')">📝 時間軸 (<span id="recordCount">0</span>)</button>
+  </nav>
+
+  <!-- 新增 / 編輯足跡彈窗 -->
+  <div class="modal-backdrop" id="formModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="modalTitle">新增足跡紀錄</h2>
+        <button class="btn" onclick="closeModal()">✕</button>
+      </div>
+      <form id="placeForm" onsubmit="savePlace(event)">
+        <input type="hidden" id="editIdInput" />
+
+        <div class="form-group">
+          <label>地點名稱 *</label>
+          <input type="text" id="titleInput" class="form-control" placeholder="例如：淡水老街、阿里山祝山觀日平台" required />
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>分類</label>
+            <select id="categoryInput" class="form-control">
+              <option value="景點">景點</option>
+              <option value="美食">美食</option>
+              <option value="住宿">住宿</option>
+              <option value="日常">日常</option>
+              <option value="其他">其他</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>造訪時間 *</label>
+            <input type="datetime-local" id="dateInput" class="form-control" required />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>座標位置 (緯度, 經度)</label>
+          <div class="coord-row">
+            <input type="number" step="any" id="latInput" class="form-control" placeholder="緯度" required />
+            <input type="number" step="any" id="lngInput" class="form-control" placeholder="經度" required />
+            <button type="button" class="btn" onclick="getCurrentLocation()">🎯 定位</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>照片紀錄（自動壓縮省空間）</label>
+          <input type="file" id="photoInput" accept="image/*" multiple class="form-control" onchange="handlePhotos(event)" />
+          <div class="preview-grid" id="photoPreview"></div>
+        </div>
+
+        <div class="form-group">
+          <label>心得與筆記</label>
+          <textarea id="noteInput" class="form-control" placeholder="寫下當下的心情、推薦美食或特別的回憶..."></textarea>
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width:100%; justify-content:center; padding:12px; font-size:1rem;">
+          💾 儲存足跡
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- 照片放大燈箱 -->
+  <div id="lightbox" onclick="this.classList.remove('open')">
+    <img id="lightboxImg" src="" alt="放大預覽" />
+  </div>
+
+  <!-- 外部函式庫 -->
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dexie@3.2.4/dist/dexie.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+
+  <script>
+    // ==========================================
+    // 1. 初始化 IndexedDB 本機資料庫
+    // ==========================================
+    const db = new Dexie("FootprintsDB");
+    db.version(1).stores({
+      places: "id, title, visitedAt, latitude, longitude"
+    });
+    db.version(2).stores({
+      places: "id, title, category, visitedAt, latitude, longitude"
+    });
+
+    // ==========================================
+    // 2. 初始化地圖、備援圖磚與尺寸重算
+    // ==========================================
+    const map = L.map("map").setView([23.9738, 120.9820], 8);
+
+    const osmLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "&copy; OpenStreetMap contributors",
+      maxZoom: 19
+    });
+
+    const fallbackLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
+      attribution: "&copy; OpenStreetMap &copy; CARTO",
+      maxZoom: 19
+    });
+
+    let activeLayerName = "osm";
+    let autoFallbackTriggered = false;
+    let allPlaces = [];
+    let tempPhotos = [];
+
+    function updateLayerButtonText() {
+      const btn = document.getElementById("layerSwitchBtn");
+      if (btn) btn.textContent = activeLayerName === "osm" ? "🗺️ 圖層：OSM" : "🗺️ 圖層：CartoDB";
+    }
+
+    function switchToLayer(targetName) {
+      if (targetName === "carto") {
+        if (map.hasLayer(osmLayer)) map.removeLayer(osmLayer);
+        if (!map.hasLayer(fallbackLayer)) fallbackLayer.addTo(map);
+        activeLayerName = "carto";
+      } else {
+        if (map.hasLayer(fallbackLayer)) map.removeLayer(fallbackLayer);
+        if (!map.hasLayer(osmLayer)) osmLayer.addTo(map);
+        activeLayerName = "osm";
+      }
+      updateLayerButtonText();
+      refreshMapSize();
+    }
+
+    function toggleMapLayer() {
+      switchToLayer(activeLayerName === "osm" ? "carto" : "osm");
+    }
+
+    osmLayer.on("tileerror", () => {
+      if (!autoFallbackTriggered && activeLayerName === "osm") {
+        autoFallbackTriggered = true;
+        switchToLayer("carto");
+      }
+    });
+
+    osmLayer.addTo(map);
+    updateLayerButtonText();
+
+    function refreshMapSize() {
+      requestAnimationFrame(() => map.invalidateSize({ pan: false }));
+      setTimeout(() => map.invalidateSize({ pan: false }), 180);
+    }
+
+    window.addEventListener("resize", refreshMapSize);
+    window.addEventListener("orientationchange", () => setTimeout(refreshMapSize, 250));
+
+    if (typeof ResizeObserver !== "undefined") {
+      new ResizeObserver(() => {
+        if (document.getElementById("mapView").classList.contains("active")) {
+          map.invalidateSize({ pan: false });
+        }
+      }).observe(document.getElementById("map"));
+    }
+
+    refreshMapSize();
+
+    const markersLayer = L.layerGroup().addTo(map);
+
+    map.on("click", (e) => {
+      openModal(e.latlng.lat, e.latlng.lng);
+    });
+
+    // ==========================================
+    // 3. 讀取與渲染足跡
+    // ==========================================
+    async function loadAllPlaces() {
+      allPlaces = await db.places.orderBy("visitedAt").reverse().toArray();
+      document.getElementById("recordCount").textContent = allPlaces.length;
+      renderFilteredPlaces();
+    }
+
+    function renderFilteredPlaces() {
+      const keyword = (document.getElementById("searchInput").value || "").trim().toLowerCase();
+      const cat = document.getElementById("categoryFilter").value;
+
+      const filtered = allPlaces.filter((p) => {
+        const matchCat = !cat || (p.category || "景點") === cat;
+        const matchText = !keyword ||
+          (p.title || "").toLowerCase().includes(keyword) ||
+          (p.note || "").toLowerCase().includes(keyword);
+        return matchCat && matchText;
+      });
+
+      // 重繪地圖標記
+      markersLayer.clearLayers();
+      const bounds = [];
+
+      filtered.forEach((p) => {
+        const marker = L.marker([p.latitude, p.longitude]).addTo(markersLayer);
+        bounds.push([p.latitude, p.longitude]);
+
+        const firstPhotoHtml = (p.photos && p.photos.length > 0)
+          ? `<img src="${p.photos[0]}" style="width:100%; height:110px; object-fit:cover; border-radius:6px; margin-top:6px; cursor:pointer;" onclick="openLightbox(this.src)" />`
+          : "";
+
+        marker.bindPopup(`
+          <div style="min-width:185px; max-width:240px;">
+            <strong style="font-size:14px;">${escapeHtml(p.title)}</strong>
+            <span style="font-size:11px; background:#eff6ff; color:#1d4ed8; padding:1px 6px; border-radius:10px; margin-left:4px;">${escapeHtml(p.category || "景點")}</span><br/>
+            <span style="font-size:11px; color:#64748b;">${formatDate(p.visitedAt)}</span>
+            ${firstPhotoHtml}
+            <p style="font-size:12px; margin-top:6px; white-space:pre-wrap;">${escapeHtml(p.note || "")}</p>
+          </div>
+        `);
+      });
+
+      if (bounds.length > 0 && !window.hasInitialFit) {
+        map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+        window.hasInitialFit = true;
+      }
+
+      // 重繪列表卡片
+      const container = document.getElementById("recordsContainer");
+      if (filtered.length === 0) {
+        container.innerHTML = allPlaces.length === 0
+          ? `<div class="empty-state">尚未有任何足跡紀錄<br/>點擊右下角「+」或直接點擊地圖開始記錄！</div>`
+          : `<div class="empty-state">找不到符合條件的足跡紀錄</div>`;
+        return;
+      }
+
+      container.innerHTML = filtered.map((p) => {
+        const photosHtml = (p.photos || []).map((src) =>
+          `<img src="${src}" onclick="openLightbox(this.src)" loading="lazy" />`
+        ).join("");
+
+        return `
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title-wrap">
+                <span class="card-title">${escapeHtml(p.title)}</span>
+                <span class="tag">${escapeHtml(p.category || "景點")}</span>
+              </div>
+              <div class="card-actions">
+                <button class="btn" onclick="flyToPlace(${p.latitude}, ${p.longitude})">📍</button>
+                <button class="btn" onclick="editPlace('${p.id}')">編輯</button>
+                <button class="btn btn-danger" onclick="deletePlace('${p.id}')">刪除</button>
+              </div>
+            </div>
+            <div class="card-date">🕒 ${formatDate(p.visitedAt)} ｜ 座標：${p.latitude.toFixed(4)}, ${p.longitude.toFixed(4)}</div>
+            ${p.note ? `<div class="card-note">${escapeHtml(p.note)}</div>` : ""}
+            ${photosHtml ? `<div class="card-photos">${photosHtml}</div>` : ""}
+          </div>
+        `;
+      }).join("");
+    }
+
+    // ==========================================
+    // 4. 圖片壓縮 (Canvas)
+    // ==========================================
+    async function handlePhotos(event) {
+      const files = Array.from(event.target.files);
+      for (const file of files) {
+        const compressed = await compressImage(file, 1200, 0.72);
+        tempPhotos.push(compressed);
+      }
+      renderPhotoPreviews();
+      event.target.value = "";
+    }
+
+    function compressImage(file, maxWidth, quality) {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const img = new Image();
+          img.onload = () => {
+            let { width, height } = img;
+            if (width > maxWidth) {
+              height = Math.round((height * maxWidth) / width);
+              width = maxWidth;
+            }
+            const canvas = document.createElement("canvas");
+            canvas.width = width;
+            canvas.height = height;
+            canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+            resolve(canvas.toDataURL("image/jpeg", quality));
+          };
+          img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function renderPhotoPreviews() {
+      document.getElementById("photoPreview").innerHTML = tempPhotos.map((src, idx) => `
+        <div class="preview-item">
+          <img src="${src}" />
+          <button type="button" class="preview-remove" onclick="removeTempPhoto(${idx})">✕</button>
+        </div>
+      `).join("");
+    }
+
+    function removeTempPhoto(idx) {
+      tempPhotos.splice(idx, 1);
+      renderPhotoPreviews();
+    }
+
+    // ==========================================
+    // 5. 新增、編輯、刪除與 GPS 定位
+    // ==========================================
+    function openModal(lat = null, lng = null) {
+      document.getElementById("placeForm").reset();
+      document.getElementById("editIdInput").value = "";
+      document.getElementById("modalTitle").textContent = "新增足跡紀錄";
+      tempPhotos = [];
+      renderPhotoPreviews();
+
+      const now = new Date();
+      now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+      document.getElementById("dateInput").value = now.toISOString().slice(0, 16);
+
+      if (lat !== null && lng !== null) {
+        document.getElementById("latInput").value = lat.toFixed(6);
+        document.getElementById("lngInput").value = lng.toFixed(6);
+      } else {
+        getCurrentLocation();
+      }
+
+      document.getElementById("formModal").classList.add("open");
+    }
+
+    async function editPlace(id) {
+      const place = await db.places.get(id);
+      if (!place) return;
+
+      document.getElementById("modalTitle").textContent = "編輯足跡紀錄";
+      document.getElementById("editIdInput").value = place.id;
+      document.getElementById("titleInput").value = place.title || "";
+      document.getElementById("categoryInput").value = place.category || "景點";
+      document.getElementById("dateInput").value = place.visitedAt || "";
+      document.getElementById("latInput").value = place.latitude;
+      document.getElementById("lngInput").value = place.longitude;
+      document.getElementById("noteInput").value = place.note || "";
+
+      tempPhotos = [...(place.photos || [])];
+      renderPhotoPreviews();
+      document.getElementById("formModal").classList.add("open");
+    }
+
+    function closeModal() {
+      document.getElementById("formModal").classList.remove("open");
+    }
+
+    function getCurrentLocation() {
+      if (!navigator.geolocation) {
+        alert("您的瀏覽器不支援 GPS 定位，請直接點擊地圖選取位置。");
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const { latitude, longitude } = pos.coords;
+          document.getElementById("latInput").value = latitude.toFixed(6);
+          document.getElementById("lngInput").value = longitude.toFixed(6);
+          map.setView([latitude, longitude], 15);
+        },
+        () => {
+          if (!document.getElementById("latInput").value) {
+            const center = map.getCenter();
+            document.getElementById("latInput").value = center.lat.toFixed(6);
+            document.getElementById("lngInput").value = center.lng.toFixed(6);
+          }
+        },
+        { enableHighAccuracy: true, timeout: 8000 }
+      );
+    }
+
+    async function savePlace(e) {
+      e.preventDefault();
+      const editId = document.getElementById("editIdInput").value;
+      const record = {
+        id: editId || Date.now().toString(),
+        title: document.getElementById("titleInput").value.trim(),
+        category: document.getElementById("categoryInput").value,
+        visitedAt: document.getElementById("dateInput").value,
+        latitude: parseFloat(document.getElementById("latInput").value),
+        longitude: parseFloat(document.getElementById("lngInput").value),
+        note: document.getElementById("noteInput").value.trim(),
+        photos: [...tempPhotos]
+      };
+
+      await db.places.put(record);
+      closeModal();
+      await loadAllPlaces();
+      map.flyTo([record.latitude, record.longitude], 15);
+    }
+
+    async function deletePlace(id) {
+      if (!confirm("確定要刪除這筆足跡紀錄嗎？")) return;
+      await db.places.delete(id);
+      await loadAllPlaces();
+    }
+
+    // ==========================================
+    // 6. ZIP 備份與還原
+    // ==========================================
+    async function exportBackup() {
+      const places = await db.places.toArray();
+      if (places.length === 0) {
+        alert("目前沒有任何紀錄可以備份！");
+        return;
+      }
+
+      const zip = new JSZip();
+      const imgFolder = zip.folder("images");
+      const cleanRecords = [];
+
+      places.forEach((p) => {
+        const photoFiles = [];
+        (p.photos || []).forEach((base64, idx) => {
+          const filename = `${p.id}_${idx}.jpg`;
+          const base64Data = base64.split(",")[1];
+          imgFolder.file(filename, base64Data, { base64: true });
+          photoFiles.push(`images/${filename}`);
+        });
+        cleanRecords.push({ ...p, photos: photoFiles });
+      });
+
+      zip.file("records.json", JSON.stringify(cleanRecords, null, 2));
+
+      const blob = await zip.generateAsync({ type: "blob" });
+      const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `Footprints_Backup_${dateStr}.zip`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    }
+
+    async function importBackup(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      try {
+        const zip = await JSZip.loadAsync(file);
+        const jsonFile = zip.file("records.json");
+        if (!jsonFile) throw new Error("找不到 records.json，請確認是否為有效的足跡備份檔。");
+
+        const records = JSON.parse(await jsonFile.async("string"));
+        let importedCount = 0;
+
+        for (const rec of records) {
+          const restoredPhotos = [];
+          for (const photoPath of (rec.photos || [])) {
+            const imgFile = zip.file(photoPath);
+            if (imgFile) {
+              const base64Data = await imgFile.async("base64");
+              restoredPhotos.push(`data:image/jpeg;base64,${base64Data}`);
+            }
+          }
+          rec.photos = restoredPhotos;
+          await db.places.put(rec);
+          importedCount++;
+        }
+
+        alert(`成功還原／合併 ${importedCount} 筆足跡紀錄！`);
+        window.hasInitialFit = false;
+        await loadAllPlaces();
+      } catch (err) {
+        alert("還原失敗：" + err.message);
+      } finally {
+        event.target.value = "";
+      }
+    }
+
+    // ==========================================
+    // 7. 介面切換與輔助工具
+    // ==========================================
+    function switchTab(tab) {
+      document.getElementById("mapView").classList.toggle("active", tab === "map");
+      document.getElementById("listView").classList.toggle("active", tab === "list");
+      document.getElementById("tabMap").classList.toggle("active", tab === "map");
+      document.getElementById("tabList").classList.toggle("active", tab === "list");
+      if (tab === "map") refreshMapSize();
+    }
+
+    function flyToPlace(lat, lng) {
+      switchTab("map");
+      refreshMapSize();
+      map.flyTo([lat, lng], 16);
+    }
+
+    function openLightbox(src) {
+      document.getElementById("lightboxImg").src = src;
+      document.getElementById("lightbox").classList.add("open");
+    }
+
+    function formatDate(isoStr) {
+      return isoStr ? isoStr.replace("T", " ") : "";
+    }
+
+    function escapeHtml(str) {
+      return String(str || "").replace(/[&<>"']/g, (m) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+      }[m]));
+    }
+
+    loadAllPlaces();
+  </script>
+</body>
+</html>
